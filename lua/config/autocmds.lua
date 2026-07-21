@@ -1,0 +1,221 @@
+-- Autocommands.
+
+-- Display nonprinting characters (tab characters and trailing spaces).
+vim.cmd(":autocmd InsertEnter * set listchars=tab:>•")
+
+-- Also show trailing spaces after exiting insert mode
+vim.cmd(":autocmd InsertLeave * set listchars=tab:>•,trail:∙,nbsp:•,extends:⟩,precedes:⟨")
+
+-- Set the working directory to that of the opened file
+vim.cmd("autocmd BufEnter * silent! lcd %:p:h") 
+
+-- <leader>d inserts a header for today's date. Different commands depending on
+-- the format of the filetype (ReStructured Text or Markdown)
+vim.api.nvim_create_autocmd("Filetype", {
+  pattern = "rst",
+  callback = function()
+    vim.keymap.set(
+      { "n", "i" },
+      "<leader>d",
+      '<Esc>:r! date "+\\%Y-\\%m-\\%d"<CR>A<CR>----------<CR>',
+      { desc = "Insert date as section title" }
+    )
+    vim.keymap.set(
+      "n",
+      "<leader>p",
+      'i` <>`__<Esc>F<"+pF`a',
+      { desc = "Paste a ReST-formatted link from system clipboard" }
+    )
+  end,
+})
+
+-- (R)Markdown-specific mappings
+vim.api.nvim_create_autocmd("Filetype", {
+  pattern = { "markdown", "rmd" },
+  callback = function()
+    vim.keymap.set(
+      { "n", "i" },
+      "<leader>d",
+      '<Esc>:r! date "+\\# \\%Y-\\%m-\\%d"<CR>A',
+      { desc = "Insert date as section title" }
+    )
+
+    vim.keymap.set(
+      "n",
+      "<leader>p",
+      'i[]()<Esc>h"+pF]i',
+      { desc = "Paste a Markdown-formatted link from system clipboard" }
+    )
+  end,
+})
+
+-- Tell nvim about the snakemake filetype
+vim.filetype.add({
+  filename = {
+    ["Snakefile"] = "snakemake",
+  },
+  pattern = {
+    ["*.smk"] = "snakemake",
+    ["*.snakefile"] = "snakemake",
+    ["*.snakemake"] = "snakemake",
+    ["Snakefile*"] = "snakemake",
+  },
+})
+
+-- Set commentstring for snakemake, which is needed for vim-commentary
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "snakemake",
+  callback = function() vim.cmd("set commentstring=#\\ %s") end,
+})
+
+
+-- Render RMarkdown in R running in terminal with <leader>k
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "rmarkdown", "rmd" },
+  callback = function()
+    vim.keymap.set(
+      "n",
+      "<leader>k",
+      ":TermExec cmd='rmarkdown::render(\"%:p\")'<CR>",
+      { desc = "Render RMar[k]down to HTML" }
+    )
+    vim.keymap.set(
+      "n",
+      "<leader>rm",
+      function ()
+        ft = vim.opt.ft:get()
+        if ft == "rmarkdown" or ft == "rmd" then
+          vim.cmd("set ft=markdown")
+          vim.cmd("RenderMarkdown enable")
+        end
+        if ft == "markdown" then
+          vim.cmd("set ft=rmarkdown")
+          vim.cmd("RenderMarkdown disable")
+        end
+      end,
+      { desc = "Toggle render-markdown on an RMarkdown file" }
+    )
+    vim.keymap.set({
+      "n",
+      "i",
+    }, "<leader>`", "<Esc>i```{r}<CR>```<Esc>O", { desc = "New fenced RMarkdown code block" })
+  end,
+})
+
+-- Run Python code in IPython running in terminal
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "python",
+  callback = function()
+    vim.keymap.set("n", "<leader>k", ":TermExec cmd='run %:p'<CR>", { desc = "Run Python file in IPython" })
+  end,
+})
+
+-- Briefly highlight yanked text
+vim.api.nvim_create_autocmd("TextYankPost", {
+  callback = function()
+    vim.highlight.on_yank{higroup = "IncSearch", timeout=100}
+  end,
+  pattern = "*",
+})
+
+-- Modified from https://github.com/nvim-tree/nvim-tree.lua/wiki/Auto-Close.
+-- If the last buffer(s) open are nvim-tree or trouble.nvim or aerial, then close them all and quit.
+vim.api.nvim_create_autocmd("QuitPre", {
+  callback = function()
+    local close_wins = {}
+    local floating_wins = {}
+    local wins = vim.api.nvim_list_wins()
+    for _, w in ipairs(wins) do
+      local bufname = vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w))
+      if bufname:match("NvimTree_") ~= nil then  -- nvim-tree buffer
+        table.insert(close_wins, w)
+      end
+      if bufname:match("Trouble") ~= nil then    -- trouble.nvim buffer
+        table.insert(close_wins, w)
+      end
+      if bufname:match("Scratch") ~= nil then    -- aerial buffer
+        table.insert(close_wins, w)
+      end
+      if vim.api.nvim_win_get_config(w).relative ~= "" then -- floating windows
+        table.insert(floating_wins, w)
+      end
+    end
+
+    -- If the buffer we are closing during this QuitPre action is the only one
+    -- that does not match the above patterns, then consider it the last text buffer,
+    -- and close all other buffers.
+    if 1 == #wins - #floating_wins - #close_wins then
+      for _, w in ipairs(close_wins) do
+        vim.api.nvim_win_close(w, true)
+      end
+    end
+  end,
+})
+
+-- In toggleterm terminal buffers, show a red "cursorline" bar when the
+-- terminal is in normal mode. Useful visual reminder so you don't start typing
+-- and then wonder why text is not showing up.
+
+-- Custom highlight group we'll use in a moment. It uses the current
+-- colorscheme's Comment color
+local comment_fg = vim.api.nvim_get_hl(0, { name = "Comment" }).fg
+vim.api.nvim_set_hl(0, "TermCursorLine", { bg = comment_fg })
+
+-- winhighlight lets us render CursorLin higlights with TermCursorLine's
+-- attributes, but just local to that window (here, the terminal)
+local function apply_term_winhl()
+  if vim.bo.buftype ~= "terminal" then
+    return
+  end
+  -- toggleterm sets its own winhighlight (Normal:ToggleTermNNormal, etc.) to
+  -- give terminals a distinct background. Append our mapping instead of
+  -- overwriting so we don't clobber it.
+  local existing = vim.wo.winhighlight
+  if existing:find("CursorLine:TermCursorLine", 1, true) then
+    return
+  end
+  vim.wo.winhighlight = (existing == "" and "" or existing .. ",")
+    .. "CursorLine:TermCursorLine"
+end
+
+local group = vim.api.nvim_create_augroup("ToggleTermCursorLine", { clear = true })
+
+-- Catch new terminals and existing ones
+vim.api.nvim_create_autocmd({ "TermOpen", "WinEnter", "BufWinEnter" }, {
+  group = group,
+  callback = function()
+    -- defer applying the window-specific highlighting so toggleterm's own
+    -- winhighlight setup runs first on TermOpen
+    vim.schedule(apply_term_winhl)
+  end,
+})
+
+-- Toggle cursorline only inside terminal windows
+vim.api.nvim_create_autocmd("ModeChanged", {
+  group = group,
+
+  -- match "old_mode:new_mode" strings. E.g., t:nt means we just left
+  -- terminal-insert to go into terminal-normal.
+  pattern = { "t:nt", "nt:t" },
+  callback = function()
+    -- do nothing if we're not in a terminal buffer
+    if vim.bo.buftype ~= "terminal" then
+      return
+    end
+    -- set the window-specific (.wo) cursorline to true if we're in
+    -- terminal-normal mode
+    vim.wo.cursorline = vim.api.nvim_get_mode().mode == "nt"
+  end,
+})
+
+
+-- Always use insert mode when entering a terminal buffer, even with mouse click.
+-- NOTE: Clicking with a mouse a second time enters visual select mode, just like in a text buffer.
+vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
+  pattern = "*",
+  callback = function()
+    if vim.bo.buftype == "terminal" then
+      vim.cmd("startinsert")
+    end
+  end,
+})
